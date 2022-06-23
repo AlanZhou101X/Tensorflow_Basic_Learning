@@ -21,7 +21,8 @@ if __name__ == '__main__':
     # 4、评估模型
 '''
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 # from sklearn import datasets
 # from sklearn.model_selection import train_test_split
 # from sklearn.utils import shuffle
@@ -83,15 +84,15 @@ def get_accuracy(y, t):
     return accuracy
 
 
-def func(z):
+def func(km,z):
     # 遍历z，对每个元素进行sin()操作
     siz_z = z.copy()
     for i in range(len(z)):
-        siz_z[i] = math.sin(z[i])
+        siz_z[i] = math.sin(km*z[i])
     return siz_z
 
 
-def get_loss(y, k, t, w, v):
+def get_loss(y, k, t, w, v, H):
     # 直接在损失函数里面加上边界条件加以限制，这样做明显简单了许多
     '''
   dif = tf.matmul(tf.multiply(y1*(1-y1), W), W1)  # dy/dx,dif形状[100,1],即对应点的导数值
@@ -103,7 +104,7 @@ def get_loss(y, k, t, w, v):
     dif1 = tf.matmul(tf.multiply(t*(1-t), w), v)
     dif2 = tf.matmul(tf.multiply(t*(1-t)*(1-2*t), w**2), v)  # 二阶导
     t_loss = (dif2 + k**2*y)**2     # 常微分方程F的平方
-    loss = tf.reduce_mean(t_loss)+(y[0]-0)**2+(dif1[-1]-1)**2       # 每点F平方求和后取平均再加上边界条件
+    loss = tf.reduce_mean(t_loss)+(y[0]-0)**2+(dif1[H]-1)**2       # 每点F平方求和后取平均再加上边界条件
     return loss, t_loss
 
 
@@ -117,10 +118,17 @@ def main(argv):
     '''
 
     params = parameters.get_params(argv)
+    km = params['km']
+    k0 = params['k0']
+    n = params['n']
     H = params['H']
+    c = params['c']
+    f = params['f']
+    k0 = (2*math.pi*f)/c
+    km = ((n-1/2)*math.pi)/H  
     p_cnt = params['p_cnt']
     x_train = np.linspace(0, H, p_cnt, endpoint=True)  # 在[0,H]等距采样p_cnt个点
-    y_trail = func(x_train)                           # 已知解析式作为参照标签
+    y_trail = func(km, x_train)                           # 已知解析式作为参照标签
     x_t = np.zeros((len(x_train), params['out_dim']))                # 新建一个len(x_train)*1的矩阵x_t
     for i in range(len(x_train)):                    # 将采样得到的点放入该矩阵
         x_t[i] = x_train[i]
@@ -139,10 +147,12 @@ def main(argv):
     #keep_prob = tf.placeholder(tf.float32)
 
     y, y_tmp, w, v = inference(z, n_in=n_in, n_hiddens=n_hiddens, n_out=n_out)  # 预测值
-    k = params['k']
-    ls, t_loss = get_loss(y, k, y_tmp, w, v)
+
+    
+    ls, t_loss = get_loss(y, km, y_tmp, w, v, H)
     lr = params['lr']
     train_step = training(ls, lr)
+    
 
     # accuracy = get_accuracy(y, t)
     #
@@ -165,12 +175,12 @@ def main(argv):
         sess.run(train_step, feed_dict={z: x_t})
         if i % 50 == 0:
             total_loss = sess.run(ls, feed_dict={z: x_t})
-            print("loss={}".format(total_loss))
-            print(sess.run(y[0], feed_dict={z: x_t}))
+            print("epoch:{},loss={}".format(i,total_loss))
+            # print(sess.run(y[0], feed_dict={z: x_t}))
     saver = tf.train.Saver(max_to_keep=1)  # 保存模型，训练一次后可以将训练过程注释掉
-    saver.save(sess, 'ckpt/nn.ckpt', global_step=nb_epochs)
+    saver.save(sess, 'ckpt2/nn.ckpt', global_step=nb_epochs)
     saver = tf.train.Saver(max_to_keep=1)
-    model_file = "ckpt/nn.ckpt-"+str(nb_epochs)
+    model_file = "ckpt2/nn.ckpt-"+str(nb_epochs)
     saver.restore(sess, model_file)
     output = sess.run(y, feed_dict={z: x_t})
     output1 = sess.run(t_loss, feed_dict={z: x_t})
@@ -181,30 +191,33 @@ def main(argv):
     y_output1 = x_train.copy()
 
     # print(x_train)
+    
     for i in range(len(x_train)):
         y_output[i] = output[i]
         y_output1[i] = output1[i]
+        
     plt.figure()           # 图1画实际值与预测值的对比
     plt.title("Contrast of Ground truth and Prediction", loc='center')
     l1 = y_trail
     l2 = y_output
-    plt.plot(x_train, l1, label='ground truth')
+    # plt.plot(x_train, l1, label='ground truth')
     plt.plot(x_train, l2, label='prediction')
     plt.legend(loc='best', frameon=True)
     plt.savefig("Contrast.jpg")
-    plt.figure()           # 图2画实际值与预测值得偏差
-    plt.title("The bias of Ground truth and Prediction", loc='center')
-    plt.plot(x_train, y_trail - y_output)
-    plt.savefig("Bias.jpg")
-    plt.figure()           # 图3画出每一点对Loss的贡献
-    plt.title("View of Loss", loc='center')
-    plt.plot(x_train, y_output1 + (y_output[0] - 0) ** 2)
-    plt.savefig("Loss.jpg")
-    plt.show()
+    
+    # plt.figure()           # 图2画实际值与预测值得偏差
+    # plt.title("The bias of Ground truth and Prediction", loc='center')
+    # plt.plot(x_train, y_trail - y_output)
+    # plt.savefig("Bias.jpg")
+    # plt.figure()           # 图3画出每一点对Loss的贡献
+    # plt.title("View of Loss", loc='center')
+    # plt.plot(x_train, y_output1 + (y_output[0] - 0) ** 2)
+    # plt.savefig("Loss.jpg")
+    # plt.show()
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         main(sys.argv[1])
     else:
-        main('1')
+        main('4')
